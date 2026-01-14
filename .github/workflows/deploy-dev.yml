@@ -20,6 +20,11 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
           echo "$HOME/.databricks/bin" >> "$GITHUB_PATH"
 
+      - name: Install uv build tool
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Deploy bundle to dev
         run: |
           databricks bundle deploy -t dev
