@@ -21,4 +21,7 @@ jobs:
           echo "$HOME/.databricks/bin" >> "$GITHUB_PATH"
 
       - name: Validate Databricks bundle (dev)
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: databricks bundle validate -t dev
