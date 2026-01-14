@@ -20,6 +20,8 @@ resources:
           default: ${var.catalog}
         - name: schema
           default: ${var.schema}
+        - name: run_mode
+          default: ${var.run_mode}
 
       tasks:
         - task_key: notebook_task
@@ -36,6 +38,8 @@ resources:
               - "${var.catalog}"
               - "--schema"
               - "${var.schema}"
+              - "--run-mode"
+              - "${var.run_mode}"
           environment_key: default
         - task_key: refresh_pipeline
           depends_on:

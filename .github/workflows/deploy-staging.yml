@@ -1,13 +1,12 @@
-name: Deploy Bundle to Dev
+name: Deploy Bundle to Staging
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: staging
     env:
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
@@ -25,51 +24,48 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Deploy bundle to dev
+      - name: Deploy bundle to staging
         run: |
-          databricks bundle deploy -t dev
-          echo "Deployment complete for target=dev"
+          databricks bundle deploy -t staging
+          echo "Deployment complete for target=staging"
 
       - name: Collect deployment summary
         id: bundle_summary
         run: |
-          SUMMARY=$(databricks bundle summary -t dev --output json)
+          SUMMARY=$(databricks bundle summary -t staging --output json)
           echo "$SUMMARY" > bundle-summary.json
-          echo "Bundle summary for target=dev"
-          jq -r '.resources | to_entries[] | "Resource group: \(.key)"' bundle-summary.json
           JOB_ID=$(jq -r '.resources.jobs.sample_job.id' bundle-summary.json)
           PIPELINE_ID=$(jq -r '.resources.pipelines.cicd_dbs_etl.id' bundle-summary.json)
-          echo "Job resource id: $JOB_ID"
-          echo "Pipeline resource id: $PIPELINE_ID"
+          echo "staging job id: $JOB_ID"
+          echo "staging pipeline id: $PIPELINE_ID"
           echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
           echo "pipeline_id=$PIPELINE_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Run sample_job (dev)
+      - name: Run sample_job (staging)
         id: run_job
         env:
           JOB_ID: ${{ steps.bundle_summary.outputs.job_id }}
         run: |
           if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ]; then
-            echo "Job id is missing from bundle summary"
+            echo "Job id is missing"
             exit 1
           fi
           RUN_RESPONSE=$(databricks jobs run-now --job-id "$JOB_ID" --output json)
           echo "$RUN_RESPONSE" > run-response.json
           RUN_ID=$(jq -r '.run_id' run-response.json)
-          echo "Triggered Databricks job run_id=$RUN_ID"
+          echo "Triggered staging run_id=$RUN_ID"
           ATTEMPTS=0
           while true; do
             STATUS=$(databricks jobs runs get --run-id "$RUN_ID" --output json)
             echo "$STATUS" > run-status.json
             LIFE=$(jq -r '.state.life_cycle_state' run-status.json)
             RESULT=$(jq -r '.state.result_state // ""' run-status.json)
-            echo "Current state: $LIFE / $RESULT"
+            echo "State: $LIFE / $RESULT"
             if [ "$LIFE" = "TERMINATED" ]; then
               if [ "$RESULT" = "SUCCESS" ]; then
-                RUN_MODE=$(jq -r '.job_parameters.run_mode // "sample"' run-status.json)
+                RUN_MODE=$(jq -r '.job_parameters.run_mode // "full"' run-status.json)
                 echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
                 echo "run_mode=$RUN_MODE" >> "$GITHUB_OUTPUT"
-                cat run-status.json
                 break
               else
                 cat run-status.json
@@ -87,19 +83,22 @@ jobs:
             sleep 15
           done
 
-      - name: Verify dev run output
+      - name: Verify staging run output
         env:
           RUN_MODE: ${{ steps.run_job.outputs.run_mode }}
         run: |
-          MODE=${RUN_MODE:-sample}
+          MODE=${RUN_MODE:-full}
+          if [ "$MODE" != "full" ]; then
+            echo "Expected staging run_mode=full but found $MODE"
+            exit 1
+          fi
           OUTPUT_PATH="dbfs:/tmp/cicd_dbs/run_mode=${MODE}/latest.json"
-          echo "Checking verification artifact at $OUTPUT_PATH"
+          echo "Checking staging artifact at $OUTPUT_PATH"
           CONTENT=$(databricks fs cat "$OUTPUT_PATH")
           echo "$CONTENT" > run-artifact.json
           ROW_COUNT=$(jq -r '.row_count' run-artifact.json)
-          echo "Artifact contents: $(cat run-artifact.json)"
           if [ "$ROW_COUNT" = "null" ] || [ -z "$ROW_COUNT" ] || [ "$ROW_COUNT" -lt 1 ]; then
-            echo "Row count validation failed"
+            echo "Row count validation failed for staging"
             exit 1
           fi
-          echo "Row count validation passed with row_count=$ROW_COUNT for run_mode=$MODE"
+          echo "Staging row count validation passed with row_count=$ROW_COUNT"
