@@ -1,0 +1,33 @@
+name: Deploy Bundle to Dev
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          echo "$HOME/.databricks/bin" >> "$GITHUB_PATH"
+
+      - name: Deploy bundle to dev
+        run: |
+          databricks bundle deploy -t dev
+          echo "Deployment complete for target=dev"
+
+      - name: Show deployed resource identifiers
+        run: |
+          SUMMARY=$(databricks bundle summary -t dev --output json)
+          echo "Target: dev"
+          echo "$SUMMARY" | jq -r 'select(.resources.jobs) | .resources.jobs | to_entries[] | "Job: \(.key) => id=\(.value.id)"'
+          echo "$SUMMARY" | jq -r 'select(.resources.pipelines) | .resources.pipelines | to_entries[] | "Pipeline: \(.key) => id=\(.value.id)"'
