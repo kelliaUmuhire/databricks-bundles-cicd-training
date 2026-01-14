@@ -19,6 +19,8 @@ variables:
     description: The catalog to use
   schema:
     description: The schema to use
+  run_mode:
+    description: Controls how much data the job processes (sample vs full)
 
 targets:
   dev:
@@ -33,6 +35,16 @@ targets:
     variables:
       catalog: workspace
       schema: ${workspace.current_user.short_name}
+      run_mode: sample
+  staging:
+    mode: production
+    workspace:
+      host: https://dbc-1aa519f7-aaac.cloud.databricks.com
+      root_path: /Workspace/Users/kellumuhire@gmail.com/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: workspace
+      schema: staging
+      run_mode: full
   prod:
     mode: production
     workspace:
@@ -42,6 +54,7 @@ targets:
     variables:
       catalog: workspace
       schema: prod
+      run_mode: full
     permissions:
       - user_name: kellumuhire@gmail.com
         level: CAN_MANAGE
