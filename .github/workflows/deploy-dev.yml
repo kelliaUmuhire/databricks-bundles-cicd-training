@@ -59,7 +59,7 @@ jobs:
           echo "Triggered Databricks job run_id=$RUN_ID"
           ATTEMPTS=0
           while true; do
-            STATUS=$(databricks runs get "$RUN_ID" --output json)
+            STATUS=$(databricks jobs get-run "$RUN_ID")
             echo "$STATUS" > run-status.json
             LIFE=$(jq -r '.state.life_cycle_state' run-status.json)
             RESULT=$(jq -r '.state.result_state // ""' run-status.json)
@@ -96,7 +96,7 @@ jobs:
             echo "Run id missing; cannot verify output"
             exit 1
           fi
-          databricks runs get-output "$RUN_ID" --output json > run-output.json
+          databricks jobs get-run-output "$RUN_ID" > run-output.json
           python - <<'PY'
             import json
             import os
