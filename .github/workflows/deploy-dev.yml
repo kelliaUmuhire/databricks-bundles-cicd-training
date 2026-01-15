@@ -66,7 +66,14 @@ jobs:
             echo "Current state: $LIFE / $RESULT"
             if [ "$LIFE" = "TERMINATED" ]; then
               if [ "$RESULT" = "SUCCESS" ]; then
-                RUN_MODE=$(jq -r '.job_parameters.run_mode // "sample"' run-status.json)
+                RUN_MODE=$(jq -r '
+                  (.job_parameters
+                    | if type == "object" then .run_mode
+                      elif type == "array" then
+                        (map(select(.name == "run_mode")) | (.[0].value // empty))
+                      else null end
+                  ) // "sample"
+                ' run-status.json)
                 echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
                 echo "run_mode=$RUN_MODE" >> "$GITHUB_OUTPUT"
                 cat run-status.json
