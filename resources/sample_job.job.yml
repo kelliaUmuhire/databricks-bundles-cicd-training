@@ -27,6 +27,10 @@ resources:
         - task_key: notebook_task
           notebook_task:
             notebook_path: ../src/sample_notebook.ipynb
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              run_mode: ${var.run_mode}
         - task_key: python_wheel_task
           depends_on:
             - task_key: notebook_task
