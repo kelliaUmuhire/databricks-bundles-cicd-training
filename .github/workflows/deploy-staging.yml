@@ -56,7 +56,7 @@ jobs:
           echo "Triggered staging run_id=$RUN_ID"
           ATTEMPTS=0
           while true; do
-            STATUS=$(databricks jobs runs get "$RUN_ID" --output json)
+            STATUS=$(databricks runs get "$RUN_ID" --output json)
             echo "$STATUS" > run-status.json
             LIFE=$(jq -r '.state.life_cycle_state' run-status.json)
             RESULT=$(jq -r '.state.result_state // ""' run-status.json)
@@ -85,20 +85,44 @@ jobs:
 
       - name: Verify staging run output
         env:
-          RUN_MODE: ${{ steps.run_job.outputs.run_mode }}
+          RUN_ID: ${{ steps.run_job.outputs.run_id }}
+          EXPECTED_RUN_MODE: full
         run: |
-          MODE=${RUN_MODE:-full}
-          if [ "$MODE" != "full" ]; then
-            echo "Expected staging run_mode=full but found $MODE"
+          if [ -z "$RUN_ID" ]; then
+            echo "Run id missing; cannot verify output"
             exit 1
           fi
-          OUTPUT_PATH="dbfs:/tmp/cicd_dbs/run_mode=${MODE}/latest.json"
-          echo "Checking staging artifact at $OUTPUT_PATH"
-          CONTENT=$(databricks fs cat "$OUTPUT_PATH")
-          echo "$CONTENT" > run-artifact.json
-          ROW_COUNT=$(jq -r '.row_count' run-artifact.json)
-          if [ "$ROW_COUNT" = "null" ] || [ -z "$ROW_COUNT" ] || [ "$ROW_COUNT" -lt 1 ]; then
-            echo "Row count validation failed for staging"
-            exit 1
-          fi
-          echo "Staging row count validation passed with row_count=$ROW_COUNT"
+          databricks runs get-output "$RUN_ID" --output json > run-output.json
+          python - <<'PY'
+            import json
+            import os
+            import re
+
+            with open("run-output.json", encoding="utf-8") as fh:
+              data = json.load(fh)
+
+            logs = data.get("logs") or ""
+            print(logs)
+
+            row_counts = re.findall(r"VERIFICATION_ROW_COUNT=(\d+)", logs)
+            if not row_counts:
+              raise SystemExit("Verification marker for row count not found in logs")
+
+            row_count = int(row_counts[-1])
+            if row_count <= 0:
+              raise SystemExit(f"Row count {row_count} is not greater than zero")
+
+            run_modes = re.findall(r"VERIFICATION_RUN_MODE=([A-Za-z0-9_-]+)", logs)
+            if not run_modes:
+              raise SystemExit("Verification marker for run mode not found in logs")
+
+            run_mode = run_modes[-1]
+            expected = os.environ.get("EXPECTED_RUN_MODE", "full")
+            if run_mode != expected:
+              raise SystemExit(
+                f"Expected run mode {expected} but job reported {run_mode}"
+              )
+
+            print(
+              f"Staging verification passed: run_mode={run_mode}, row_count={row_count}"
+            )
