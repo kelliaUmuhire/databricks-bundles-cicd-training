@@ -1,0 +1,163 @@
+name: Deploy Bundle to Prod
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          echo "$HOME/.databricks/bin" >> "$GITHUB_PATH"
+
+      - name: Install uv build tool
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Deploy bundle to prod
+        run: |
+          databricks bundle deploy -t prod
+          echo "Deployment complete for target=prod"
+
+      - name: Collect deployment summary
+        id: bundle_summary
+        run: |
+          SUMMARY=$(databricks bundle summary -t prod --output json)
+          echo "$SUMMARY" > bundle-summary.json
+          JOB_ID=$(jq -r '.resources.jobs.sample_job.id' bundle-summary.json)
+          PIPELINE_ID=$(jq -r '.resources.pipelines.cicd_dbs_etl.id' bundle-summary.json)
+          echo "prod job id: $JOB_ID"
+          echo "prod pipeline id: $PIPELINE_ID"
+          echo "job_id=$JOB_ID" >> "$GITHUB_OUTPUT"
+          echo "pipeline_id=$PIPELINE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Run sample_job (prod)
+        id: run_job
+        env:
+          JOB_ID: ${{ steps.bundle_summary.outputs.job_id }}
+        run: |
+          if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ]; then
+            echo "Job id is missing"
+            exit 1
+          fi
+          RUN_RESPONSE=$(databricks jobs run-now "$JOB_ID" --output json)
+          echo "$RUN_RESPONSE" > run-response.json
+          RUN_ID=$(jq -r '.run_id' run-response.json)
+          echo "Triggered prod run_id=$RUN_ID"
+          ATTEMPTS=0
+          while true; do
+            STATUS=$(databricks jobs get-run "$RUN_ID")
+            echo "$STATUS" > run-status.json
+            LIFE=$(jq -r '.state.life_cycle_state' run-status.json)
+            RESULT=$(jq -r '.state.result_state // ""' run-status.json)
+            echo "State: $LIFE / $RESULT"
+            if [ "$LIFE" = "TERMINATED" ]; then
+              if [ "$RESULT" = "SUCCESS" ]; then
+                RUN_MODE=$(jq -r '
+                  (.job_parameters
+                    | if type == "object" then .run_mode
+                      elif type == "array" then
+                        (map(select(.name == "run_mode")) | (.[0].value // empty))
+                      else null end
+                  ) // "full"
+                ' run-status.json)
+                echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+                echo "run_mode=$RUN_MODE" >> "$GITHUB_OUTPUT"
+                break
+              else
+                cat run-status.json
+                exit 1
+              fi
+            elif [ "$LIFE" = "INTERNAL_ERROR" ] || [ "$LIFE" = "SKIPPED" ]; then
+              cat run-status.json
+              exit 1
+            fi
+            ATTEMPTS=$((ATTEMPTS + 1))
+            if [ $ATTEMPTS -gt 40 ]; then
+              echo "Run polling timed out"
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Verify prod run output
+        env:
+          RUN_ID: ${{ steps.run_job.outputs.run_id }}
+          EXPECTED_RUN_MODE: full
+        run: |
+          if [ -z "$RUN_ID" ]; then
+            echo "Run id missing; cannot verify output"
+            exit 1
+          fi
+          databricks jobs get-run "$RUN_ID" > run-status.json
+          TASK_RUN_ID=$(jq -r '.tasks[] | select(.task_key == "python_wheel_task") | .run_id' run-status.json)
+          if [ -z "$TASK_RUN_ID" ] || [ "$TASK_RUN_ID" = "null" ]; then
+            echo "Unable to find python_wheel_task run id"
+            cat run-status.json
+            exit 1
+          fi
+          databricks jobs get-run-output "$TASK_RUN_ID" > run-output.json
+          python - <<'PY'
+          import json
+          import os
+          import re
+
+          with open("run-output.json", encoding="utf-8") as fh:
+              data = json.load(fh)
+
+          logs = data.get("logs") or ""
+          print(logs)
+
+          row_counts = re.findall(r"VERIFICATION_ROW_COUNT=(\d+)", logs)
+          if not row_counts:
+              raise SystemExit("Verification marker for row count not found in logs")
+
+          row_count = int(row_counts[-1])
+          if row_count <= 0:
+              raise SystemExit(f"Row count {row_count} is not greater than zero")
+
+          run_modes = re.findall(r"VERIFICATION_RUN_MODE=([A-Za-z0-9_-]+)", logs)
+          if not run_modes:
+              raise SystemExit("Verification marker for run mode not found in logs")
+
+          run_mode = run_modes[-1]
+          expected = os.environ.get("EXPECTED_RUN_MODE", "full")
+          if run_mode != expected:
+              raise SystemExit(
+                  f"Expected run mode {expected} but job reported {run_mode}"
+              )
+
+          print(
+              f"Prod verification passed: run_mode={run_mode}, row_count={row_count}"
+          )
+          PY
+
+      - name: Publish deployment summary
+        run: |
+          VERSION=${GITHUB_REF##*/}
+          SHA=${GITHUB_SHA}
+          RUN_ID=${{ steps.run_job.outputs.run_id }}
+          JOB_ID=${{ steps.bundle_summary.outputs.job_id }}
+          PIPELINE_ID=${{ steps.bundle_summary.outputs.pipeline_id }}
+          {
+            echo "### Prod Deplsoyment Summary"
+            echo "- Version tag: $VERSION"
+            echo "- Commit SHA: $SHA"
+            echo "- Target: prod"
+            echo "- Job id: $JOB_ID"
+            echo "- Pipeline id: $PIPELINE_ID"
+            echo "- Run id: $RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"
