@@ -144,3 +144,4 @@ jobs:
             print(
               f"Row count validation passed: run_mode={run_mode}, row_count={row_count}"
             )
+            PY

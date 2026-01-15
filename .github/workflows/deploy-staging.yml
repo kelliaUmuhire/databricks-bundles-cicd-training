@@ -140,3 +140,4 @@ jobs:
             print(
               f"Staging verification passed: run_mode={run_mode}, row_count={row_count}"
             )
+            PY
