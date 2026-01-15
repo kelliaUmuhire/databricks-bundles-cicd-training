@@ -6,6 +6,7 @@ resources:
       name: cicd_dbs_etl
       catalog: ${var.catalog}
       schema: ${var.schema}
+      allow_duplicate_names: true
       serverless: true
       root_path: "../src/cicd_dbs_etl"
 
