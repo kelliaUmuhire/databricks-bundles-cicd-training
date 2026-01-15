@@ -36,7 +36,7 @@ def main():
     # Example: read sample taxi data with optional limit based on run mode
     limit = RUN_MODE_LIMITS[args.run_mode]
     df = taxis.find_all_taxis(limit=limit)
-    df.show(5)
+    df.select("tpep_pickup_datetime", "tpep_dropoff_datetime", "trip_distance").show(5)
 
     row_count = df.count()
 
