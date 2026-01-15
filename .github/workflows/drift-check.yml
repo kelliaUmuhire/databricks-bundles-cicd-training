@@ -1,0 +1,45 @@
+name: Drift Check
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          echo "$HOME/.databricks/bin" >> "$GITHUB_PATH"
+
+      - name: Install uv build tool
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Validate bundle (dev)
+        run: databricks bundle validate -t dev
+
+      - name: Detect drift (plan)
+        id: plan
+        run: |
+          set -e
+          databricks bundle plan -t dev --output json > plan.json
+          cat plan.json
+          CHANGES=$(jq '.summary.changes' plan.json)
+          echo "Detected changes: $CHANGES"
+          echo "changes=$CHANGES" >> "$GITHUB_OUTPUT"
+
+      - name: Fail when drift detected
+        if: steps.plan.outputs.changes != '0'
+        run: |
+          echo "Drift detected between repo and workspace. See plan output for details." >&2
+          exit 1
