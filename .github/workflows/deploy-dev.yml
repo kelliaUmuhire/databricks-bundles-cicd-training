@@ -53,13 +53,13 @@ jobs:
             echo "Job id is missing from bundle summary"
             exit 1
           fi
-          RUN_RESPONSE=$(databricks jobs run-now --job-id "$JOB_ID" --output json)
+          RUN_RESPONSE=$(databricks jobs run-now "$JOB_ID" --output json)
           echo "$RUN_RESPONSE" > run-response.json
           RUN_ID=$(jq -r '.run_id' run-response.json)
           echo "Triggered Databricks job run_id=$RUN_ID"
           ATTEMPTS=0
           while true; do
-            STATUS=$(databricks jobs runs get --run-id "$RUN_ID" --output json)
+            STATUS=$(databricks jobs runs get "$RUN_ID" --output json)
             echo "$STATUS" > run-status.json
             LIFE=$(jq -r '.state.life_cycle_state' run-status.json)
             RESULT=$(jq -r '.state.result_state // ""' run-status.json)
