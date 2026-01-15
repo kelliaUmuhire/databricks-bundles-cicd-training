@@ -2,7 +2,6 @@ import argparse
 import json
 from datetime import datetime
 from databricks.sdk.runtime import spark
-from pyspark.dbutils import DBUtils
 from cicd_dbs import taxis
 
 
@@ -39,11 +38,6 @@ def main():
     df.select("tpep_pickup_datetime", "tpep_dropoff_datetime", "trip_distance").show(5)
 
     row_count = df.count()
-
-    # Persist metadata for CI verification
-    output_dir = f"dbfs:/tmp/cicd_dbs/run_mode={args.run_mode}"
-    dbutils = DBUtils(spark)
-    dbutils.fs.mkdirs(output_dir)
     payload = {
         "run_mode": args.run_mode,
         "row_count": row_count,
@@ -51,10 +45,9 @@ def main():
         "schema": args.schema,
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
-    dbutils.fs.put(f"{output_dir}/latest.json", json.dumps(payload), True)
-    print(
-        f"Verification payload written to {output_dir}/latest.json with row_count={row_count}",
-    )
+    print(f"VERIFICATION_RUN_MODE={args.run_mode}")
+    print(f"VERIFICATION_ROW_COUNT={row_count}")
+    print(f"VERIFICATION_PAYLOAD={json.dumps(payload)}")
 
 
 if __name__ == "__main__":
