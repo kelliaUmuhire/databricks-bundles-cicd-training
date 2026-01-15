@@ -30,6 +30,7 @@ def main():
 
     # Set the default catalog and schema
     spark.sql(f"USE CATALOG {args.catalog}")
+    spark.sql(f"CREATE SCHEMA IF NOT EXISTS {args.catalog}.{args.schema}")
     spark.sql(f"USE SCHEMA {args.schema}")
 
     # Example: read sample taxi data with optional limit based on run mode
