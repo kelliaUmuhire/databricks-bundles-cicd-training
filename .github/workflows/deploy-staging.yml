@@ -56,7 +56,7 @@ jobs:
           echo "Triggered staging run_id=$RUN_ID"
           ATTEMPTS=0
           while true; do
-            STATUS=$(databricks jobs runs get "$RUN_ID" --output json)
+            STATUS=$(databricks jobs get-run "$RUN_ID")
             echo "$STATUS" > run-status.json
             LIFE=$(jq -r '.state.life_cycle_state' run-status.json)
             RESULT=$(jq -r '.state.result_state // ""' run-status.json)
@@ -99,14 +99,14 @@ jobs:
             echo "Run id missing; cannot verify output"
             exit 1
           fi
-          databricks jobs runs get "$RUN_ID" --output json > run-status.json
+          databricks jobs get-run "$RUN_ID" > run-status.json
           TASK_RUN_ID=$(jq -r '.tasks[] | select(.task_key == "python_wheel_task") | .run_id' run-status.json)
           if [ -z "$TASK_RUN_ID" ] || [ "$TASK_RUN_ID" = "null" ]; then
             echo "Unable to find python_wheel_task run id"
             cat run-status.json
             exit 1
           fi
-          databricks jobs runs get-output "$TASK_RUN_ID" --output json > run-output.json
+          databricks jobs get-run-output "$TASK_RUN_ID" > run-output.json
           python - <<'PY'
             import json
             import os
